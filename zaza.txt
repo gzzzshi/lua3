@@ -1,13 +1,25 @@
 --[[
-    Anti-Aim Builder — Neverlose CS:GO  v9.9.0
-    + Fake Duck Speed (Misc)
-    + In Air Hitchance (Ragebot)
-    + Jitter Legs (AA Settings)
-    + Misc sub-navigation (Misc / Player List)
-    + Player List whitelist
-    + Gazolina Anti-Bruteforce (AA Settings)
-    + Snap Builder / Break LC (AA → Snap tab) ← NEW
+    zazahook [DEV] v2
 ]]
+-- ════════════════════════════════════════════════════════════════
+--  WHITELIST PROTECTION — gz v1.0
+-- ════════════════════════════════════════════════════════════════
+do
+    local WHITELIST = {
+        "oouushi",
+      
+    }
+    local nl_user = common.get_username() or ""
+    local allowed = false
+    for _, v in ipairs(WHITELIST) do
+        if nl_user:lower() == v:lower() then allowed = true; break end
+    end
+    if not allowed then
+        print("\aFF3333FF[zazahook] \aFFFFFFFFNot whitelisted: \aFF8C00FF" .. nl_user .. "\aFFFFFFFF - access denied.")
+        error("", 0)
+    end
+end
+
 
 
 local TEAM_T  = 2
@@ -116,7 +128,7 @@ local refs = {
 local function make_sidebar_text(t)
     local style=ui.get_style(); local accent=color(249,86,86,0)
     if style and type(style)=="table" and style["Link Active"] then accent=style["Link Active"] end
-    local dark=color(116,131,195,255); local name="zasense"; local out=""
+    local dark=color(116,131,195,255); local name="zazahook"; local out=""
     for i=1,#name do
         local frac=math.sin(t+(i-1)*0.45)*0.5+0.5
         out=out.."\a"..dark:lerp(accent,frac):to_hex()..name:sub(i,i)
@@ -167,8 +179,8 @@ local nav_list=grp_nav:list("##NAVLIST",{
 nav_list:set(NAV.AA)
 
 grp_info:label(ui.get_icon("circle-user").." \a888888FFWelcome back, \a7483c3FF"..(common.get_username() or "unknown"))
-grp_info:label(ui.get_icon("code").." \a888888FFYour build is, \af95656FFCursed")
-grp_info:label(ui.get_icon("clock").." \a888888FFLatest Update, \af95656FFtoday nigga ")
+grp_info:label(ui.get_icon("code").." \a888888FFYour build is, \af95656FFdev/friends")
+grp_info:label(ui.get_icon("clock").." \a888888FFLatest Update, \af95656FF6/1/26 ")
 grp_info:label(ui.get_icon("floppy-disk").." \a888888FFPresets")
 local preset_list=grp_info:list("##PRESETS",{"<no presets>"})
 local preset_name=grp_info:input("Name","")
@@ -1911,7 +1923,7 @@ events.render:set(function()
     if #wl_spoofed > 0 then restore_wl_teams() end
     local now = globals.realtime
     if now - wl_last_time >= WL_INTERVAL then wl_last_time = now; rebuild_wl() end
-    ui.sidebar(make_sidebar_text(-globals.realtime*0.8),"shield-check")
+    ui.sidebar(make_sidebar_text(-globals.realtime*0.8),"bug-slash")
     if clantag_sw:get() then apply_ctag(get_ctag_frame()) else apply_ctag(" ") end
     if ar_sw:get() then pcall(function() cvar.r_aspectratio:float(ar_slider:get()*0.01) end)
     else pcall(function() cvar.r_aspectratio:float(0) end) end
@@ -2523,11 +2535,8 @@ end)
 
 print_raw(
     "\a334466FF"..string.rep("─",60).."\n"..
-    "\a7483c3FF[zazahook] \a7483c3FFDeveloper loaded  \a888888FFv9.9.1\n"..
-    "\a4ff641FF  ADD   \a888888FF│ \aFFFFFFFFSnap Builder / Break LC  (AA → Snap Builder tab)\n"..
-    "\a4ff641FF        \a888888FF│ \aFFFFFFFF  States filter · Disable on Grenade\n"..
-    "\a4ff641FF        \a888888FF│ \aFFFFFFFF  Hide Shots override · Default / Custom choke\n"..
-    "\a4ff641FF        \a888888FF│ \aFFFFFFFF  Random choke with From/To range\n"..
-    "\a4ff641FF  ADD   \a888888FF│ \aFFFFFFFFBreak LC â Tickbase: Sliders mode (gazolina cycling)\n"..
-    "\a4ff641FF  FIX   \a888888FF│ \aFFFFFFFFapply_state new_abf restore placed correctly\n"..
+    "\a7483c3FF[zazahook] \a7483c3FFdeveloper loaded  \a888888FFv2\n"..
+    "\a6b69ffFF  ADD   \a888888FF│ \aFFFFFFFFwhitelist system so fuq nikkas dont leak\n"..
+    "\a6b69ffFF  ADD   \a888888FF│ \aFFFFFFFFBreak LC â Tickbase: Sliders mode\n"..
+    "\af2d307FF  FIX   \a888888FF│ \aFFFFFFFFapply_state new_abf restore placed correctly\n"..
     "\a334466FF"..string.rep("─",60))
