@@ -9,6 +9,7 @@
     + Snap Builder / Break LC (AA → Snap tab) ← NEW
 ]]
 
+
 local TEAM_T  = 2
 local TEAM_CT = 3
 local MISS_ANGLE    = 20
@@ -1902,6 +1903,9 @@ if db[DB_LAST] then pcall(load_preset,db[DB_LAST]) end
 -- ════════════════════════════════════════════════════════════════
 --  RENDER
 -- ════════════════════════════════════════════════════════════════
+-- crosshair indicator animation state (persists across frames)
+local _ci_state = nil
+
 events.render:set(function()
     local lp=entity.get_local_player()
     if #wl_spoofed > 0 then restore_wl_teams() end
@@ -2027,35 +2031,182 @@ events.render:set(function()
         end
         for i=#dead,1,-1 do table.remove(notif_queue,dead[i]) end
     end
+    -- ── SENKOTECH CROSSHAIR INDICATORS (ported from gz v1.0) ──────────────────
     if crosshair_ind:get() and lp and lp:is_alive() then
-        local col=crosshair_cp:get() or color(255,255,255,220); local shadow=color(0,0,0,220); local tag="zazahook"
-        local is_scoped=lp.m_bIsScoped or false; local bx,by
-        if is_scoped and ci_ui.scope_shift:get() then bx=cx+ci_ui.scope_x:get(); by=cy+ci_ui.scope_y:get()
-        else bx=cx-20; by=cy+4 end
-        if ci_ui.glow:get() then
-            local gc=ci_ui.glow_cp:get() or color(100,200,255,200); local intensity=ci_ui.glow_int:get()
-            for r=1,intensity do
-                local a=math.max(4,math.floor(gc.a*(1-r/(intensity+1)))); local gc_r=color(gc.r,gc.g,gc.b,a)
-                for _,off in ipairs({{r,0},{-r,0},{0,r},{0,-r},{r,r},{-r,r},{r,-r},{-r,-r}}) do
-                    render.text(1,vector(bx+off[1],by+off[2]),gc_r,nil,tag)
-                end
+        if not _ci_state then
+            _ci_state = {
+                alpha=0, align=0,
+                st_alpha=0, st_value=0,
+                dmg_alpha=0, dmg_value=0,
+                dt_alpha=0,  dt_value=0,
+                osaa_alpha=0,osaa_value=0,
+                fs_alpha=0,  fs_value=0,
+                last_state="STAND",
+            }
+        end
+        local S = _ci_state
+
+        -- NL font IDs: 4=Bold (title), 2=Small (labels)
+        local FONT_TITLE = 4
+        local FONT_LABEL = 2
+
+        local function _lerp(a, b, spd)
+            local dt = globals.frametime
+            return a + (b - a) * math.min(1, spd * dt)
+        end
+
+        local function _wave(s, clock, c1, c0)
+            local buf={}; local len=0
+            for _ in s:gmatch(".") do len=len+1 end
+            local div = len>1 and 1/(len-1) or 1
+            for ch in s:gmatch(".") do
+                local t=clock%2; if t>1 then t=2-t end
+                local r=math.max(0,math.min(255,math.floor(c1.r+(c0.r-c1.r)*t)))
+                local g=math.max(0,math.min(255,math.floor(c1.g+(c0.g-c1.g)*t)))
+                local b=math.max(0,math.min(255,math.floor(c1.b+(c0.b-c1.b)*t)))
+                local a=math.max(0,math.min(255,math.floor(c1.a+(c0.a-c1.a)*t)))
+                buf[#buf+1]=string.format("\a%02x%02x%02x%02x%s",r,g,b,a,ch)
+                clock=clock+div
             end
+            return table.concat(buf)
         end
-        render.text(1,vector(bx+1,by+1),shadow,nil,tag); render.text(1,vector(bx,by),col,nil,tag)
-        local tag_sz=render.measure_text(1,nil,tag); local tag_cx=bx+(tag_sz and math.floor(tag_sz.x*0.5) or 20)
-        local ind_y=by+(tag_sz and tag_sz.y or 13)+6
-        local dt_active,osaa_active=false,false
-        if refs.dt_main then local ok,v=pcall(function() return refs.dt_main:get() end); if ok then dt_active=v or false end end
-        if refs.hs_main then local ok,v=pcall(function() return refs.hs_main:get() end); if ok then osaa_active=v or false end end
-        if ci_ui.show_dt:get() and dt_active then
-            local charge=rage.exploit:get()
-            local dt_col=charge<1 and color(255,50,50,255) or (ci_ui.dt_cp:get() or color(100,255,100,255))
-            render.text(2,vector(tag_cx+1,ind_y+1),shadow,"c","DT"); render.text(2,vector(tag_cx,ind_y),dt_col,"c","DT")
-            ind_y=ind_y+11
+
+        local function _fade(s, pct, c1, c0)
+            if pct<=0 then return string.format("\a%02x%02x%02x%02x",c0.r,c0.g,c0.b,c0.a)..s end
+            if pct>=1 then return string.format("\a%02x%02x%02x%02x",c1.r,c1.g,c1.b,c1.a)..s end
+            local buf={}; local len=0
+            for _ in s:gmatch(".") do len=len+1 end
+            local div=len>1 and 1/(len-1) or 1; local clock=0
+            local HP=math.pi/2
+            for ch in s:gmatch(".") do
+                local t=math.sin(HP*(1-clock*pct)*(1-pct*pct))
+                local r=math.max(0,math.min(255,math.floor(c1.r+(c0.r-c1.r)*t)))
+                local g=math.max(0,math.min(255,math.floor(c1.g+(c0.g-c1.g)*t)))
+                local b=math.max(0,math.min(255,math.floor(c1.b+(c0.b-c1.b)*t)))
+                local a=math.max(0,math.min(255,math.floor(c1.a+(c0.a-c1.a)*t)))
+                buf[#buf+1]=string.format("\a%02x%02x%02x%02x%s",r,g,b,a,ch)
+                clock=clock+div
+            end
+            return table.concat(buf)
         end
-        if ci_ui.show_osaa:get() and osaa_active then
-            local osaa_col=ci_ui.osaa_cp:get() or color(100,200,255,255)
-            render.text(2,vector(tag_cx+1,ind_y+1),shadow,"c","OSAA"); render.text(2,vector(tag_cx,ind_y),osaa_col,"c","OSAA")
+
+        local vel=math.sqrt(lp.m_vecVelocity.x^2+lp.m_vecVelocity.y^2)
+        local flags=lp.m_fFlags
+        local on_ground=bit.band(flags,1)~=0
+        local ducking=lp.m_flDuckAmount>0.5
+        local cur_state
+        if not on_ground then cur_state="AIRBORNE"
+        elseif ducking    then cur_state="CROUCH"
+        elseif vel>10     then cur_state="MOVING"
+        else                   cur_state="STAND" end
+
+        local is_scoped = lp.m_bIsScoped or false
+        local is_dt  = false; pcall(function() is_dt  = refs.dt_main and (refs.dt_main:get_override() or refs.dt_main:get()) end)
+        local is_os  = false; pcall(function() is_os  = refs.hs_main and (refs.hs_main:get_override() or refs.hs_main:get()) end)
+        local is_dmg = false
+        do local ok,ovr=pcall(ui.find,"Aimbot","Ragebot","Main","Minimum Damage Override")
+            if ok and ovr then pcall(function() is_dmg=ovr:get_override() or ovr:get() end) end end
+        local is_fs = false
+        do local ok,fs=pcall(ui.find,"Aimbot","Anti Aim","Misc","Freestanding")
+            if ok and fs then pcall(function() is_fs=fs:get_override() or fs:get() end) end end
+
+        local charge = 1.0; pcall(function() charge=rage.exploit:get() end)
+        local shifted = charge >= 1.0
+
+        S.alpha      = _lerp(S.alpha,     is_scoped and 0.75 or 1.0, 20)
+        S.align      = _lerp(S.align,     is_scoped and 1.0 or 0.0,  20)
+        S.st_alpha   = _lerp(S.st_alpha,  1.0, 20)
+        S.st_value   = _lerp(S.st_value,  cur_state==S.last_state and 1 or 0, 15)
+        S.dmg_alpha  = _lerp(S.dmg_alpha, is_dmg and 1 or 0, 20)
+        S.dmg_value  = _lerp(S.dmg_value, 1.0, 20)
+        S.dt_alpha   = _lerp(S.dt_alpha,  is_dt  and 1 or 0, 20)
+        S.dt_value   = _lerp(S.dt_value,  shifted and 1 or 0, 20)
+        S.osaa_alpha = _lerp(S.osaa_alpha,is_os  and 1 or 0, 20)
+        S.osaa_value = _lerp(S.osaa_value,(shifted or S.dt_alpha>0) and 1 or 0, 20)
+        S.fs_alpha   = _lerp(S.fs_alpha,  is_fs  and 1 or 0, 20)
+        S.fs_value   = _lerp(S.fs_value,  is_fs  and 1 or 0, 20)
+        if S.st_value < 0.1 then S.last_state = cur_state end
+
+        if S.alpha > 0.01 then
+            local acc = crosshair_cp:get() or color(255,255,255,220)
+            local c1  = color(acc.r, acc.g, acc.b, math.max(acc.a, 55))
+            local c0  = color(71, 71, 71, c1.a)
+            local clk = globals.realtime * 1.25
+            local px  = math.floor(cx + math.floor(10 * S.align))
+            local py  = math.floor(cy + 18)
+            local sha = color(0, 0, 0, math.floor(c1.a * S.alpha * 0.85))
+
+            -- zazahook wave (Bold font, DPI scaled = "s")
+            do
+                local tsz = render.measure_text(FONT_TITLE, "s", "zazahook") or vector(48, 15)
+                local ox  = math.floor((tsz.x * 0.5) * (1 - S.align))
+                local wtxt = _wave("zazahook", clk, c1, c0)
+                render.text(FONT_TITLE, vector(px-ox+1, py+1), sha, "s", wtxt)
+                render.text(FONT_TITLE, vector(px-ox,   py),   color(c1.r,c1.g,c1.b,math.floor(c1.a*S.alpha)), "s", wtxt)
+                py = py + tsz.y
+            end
+
+            -- state label (Small font)
+            if S.st_alpha > 0.01 then
+                local ta  = S.alpha * S.st_alpha
+                local tsz = render.measure_text(FONT_LABEL, "s", S.last_state) or vector(28, 10)
+                local ox  = math.floor((tsz.x * 0.5) * (1 - S.align))
+                local txt = _fade(S.last_state, S.st_value, c1, c0)
+                render.text(FONT_LABEL, vector(px-ox+1, py+1), color(0,0,0,math.floor(sha.a*ta)), "s", txt)
+                render.text(FONT_LABEL, vector(px-ox,   py),   color(c1.r,c1.g,c1.b,math.floor(c1.a*ta)), "s", txt)
+                py = py + math.floor(tsz.y * S.st_alpha)
+            end
+
+            -- DMG (Small font)
+            if S.dmg_alpha > 0.01 then
+                local ta  = S.alpha * S.dmg_alpha
+                local tsz = render.measure_text(FONT_LABEL, "s", "DMG") or vector(22, 10)
+                local ox  = math.floor((tsz.x * 0.5) * (1 - S.align))
+                local txt = _fade("DMG", S.dmg_value, c1, c0)
+                render.text(FONT_LABEL, vector(px-ox+1, py+1), color(0,0,0,math.floor(sha.a*ta)), "s", txt)
+                render.text(FONT_LABEL, vector(px-ox,   py),   color(c1.r,c1.g,c1.b,math.floor(c1.a*ta)), "s", txt)
+                py = py + math.floor(tsz.y * S.dmg_alpha)
+            end
+
+            -- DT + charge circle (Small font)
+            if S.dt_alpha > 0.01 then
+                local ta   = S.alpha * S.dt_alpha
+                local tsz  = render.measure_text(FONT_LABEL, "s", "DT") or vector(14, 10)
+                local rad  = math.max(3, math.floor(tsz.y * 0.33))
+                local thk  = math.max(1, math.floor(rad * 0.25))
+                local gap  = 4
+                local mg   = rad + gap
+                local ox   = math.floor(((tsz.x + mg) * 0.5) * (1 - S.align))
+                local tx   = px - ox
+                local txt  = _fade("DT", S.dt_value, c1, c0)
+                render.text(FONT_LABEL, vector(tx+1, py+1), color(0,0,0,math.floor(sha.a*ta)), "s", txt)
+                render.text(FONT_LABEL, vector(tx,   py),   color(c1.r,c1.g,c1.b,math.floor(c1.a*ta)), "s", txt)
+                local cp   = vector(tx + tsz.x + mg, py + math.floor(tsz.y * 0.5))
+                render.circle_outline(cp, color(0,0,0,math.floor(200*ta)),              rad+1, 270, 1,           thk+1)
+                render.circle_outline(cp, color(c1.r,c1.g,c1.b,math.floor(c1.a*ta)),   rad,   270, S.dt_value,  thk)
+                py = py + math.floor(tsz.y * S.dt_alpha)
+            end
+
+            -- OSAA (Small font)
+            if S.osaa_alpha > 0.01 then
+                local ta  = S.alpha * S.osaa_alpha
+                local tsz = render.measure_text(FONT_LABEL, "s", "OSAA") or vector(28, 10)
+                local ox  = math.floor((tsz.x * 0.5) * (1 - S.align))
+                local txt = _fade("OSAA", S.osaa_value, c1, c0)
+                render.text(FONT_LABEL, vector(px-ox+1, py+1), color(0,0,0,math.floor(sha.a*ta)), "s", txt)
+                render.text(FONT_LABEL, vector(px-ox,   py),   color(c1.r,c1.g,c1.b,math.floor(c1.a*ta)), "s", txt)
+                py = py + math.floor(tsz.y * S.osaa_alpha)
+            end
+
+            -- FS (Small font)
+            if S.fs_alpha > 0.01 then
+                local ta  = S.alpha * S.fs_alpha
+                local tsz = render.measure_text(FONT_LABEL, "s", "FS") or vector(14, 10)
+                local ox  = math.floor((tsz.x * 0.5) * (1 - S.align))
+                local txt = _fade("FS", S.fs_value, c1, c0)
+                render.text(FONT_LABEL, vector(px-ox+1, py+1), color(0,0,0,math.floor(sha.a*ta)), "s", txt)
+                render.text(FONT_LABEL, vector(px-ox,   py),   color(c1.r,c1.g,c1.b,math.floor(c1.a*ta)), "s", txt)
+            end
         end
     end
     if si_sw:get() and lp and lp:is_alive() then
