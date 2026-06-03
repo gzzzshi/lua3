@@ -22,6 +22,63 @@ do
     end
 end
 
+-- ════════════════════════════════════════════════════════════════
+--  HWID PROTECTION — gz v1.0
+-- ════════════════════════════════════════════════════════════════
+do
+    -- Add allowed volume serial numbers below (uppercase hex, e.g. "A1B2C3D4")
+    -- Run the hwid batch script to find yours
+    local HWID_WHITELIST = {
+        "2EA54C20", --gz
+        "105889EF", --dexe
+        "F273B72C", -- uk nikka
+    }
+
+    local ffi = require("ffi")
+
+    ffi.cdef[[
+        bool GetVolumeInformationA(
+            const char* lpRootPathName,
+            char*       lpVolumeNameBuffer,
+            uint32_t    nVolumeNameSize,
+            uint32_t*   lpVolumeSerialNumber,
+            uint32_t*   lpMaximumComponentLength,
+            uint32_t*   lpFileSystemFlags,
+            char*       lpFileSystemNameBuffer,
+            uint32_t    nFileSystemNameSize
+        );
+    ]]
+
+    local serial_ptr = ffi.new("uint32_t[1]")
+    local vol_name   = ffi.new("char[256]")
+    local fs_name    = ffi.new("char[256]")
+
+    local ok = ffi.C.GetVolumeInformationA(
+        "C:\\",
+        vol_name, 256,
+        serial_ptr,
+        nil, nil,
+        fs_name, 256
+    )
+
+    local hwid_ok = false
+    if ok then
+        local serial_hex = string.format("%08X", serial_ptr[0])
+        for _, v in ipairs(HWID_WHITELIST) do
+            if serial_hex:upper() == v:upper() then
+                hwid_ok = true
+                break
+            end
+        end
+        if not hwid_ok then
+            print("\aFF3333FF[zazahook] \aFFFFFFFFHWID not whitelisted: \aFF8C00FF" .. serial_hex .. "\aFFFFFFFF - access denied.")
+            error("", 0)
+        end
+    else
+        print("\aFF3333FF[zazahook] \aFFFFFFFFHWID check failed - could not read volume serial.")
+        error("", 0)
+    end
+end
 
 
 local TEAM_T  = 2
@@ -596,12 +653,6 @@ local crosshair_cp; local ci_ui={}
 do
     local sub=crosshair_ind:create()
     crosshair_cp=sub:color_picker("Accent",color(255,255,255,220))
-    ci_ui.show_dt=sub:switch("  Show DT",true); ci_ui.dt_cp=ci_ui.show_dt:color_picker(color(100,255,100,255))
-    ci_ui.show_osaa=sub:switch("  Show OSAA",true); ci_ui.osaa_cp=ci_ui.show_osaa:color_picker(color(100,200,255,255))
-    ci_ui.scope_shift=sub:switch("  Shift When Scoped",false)
-    ci_ui.scope_x=sub:slider("X Offset",10,200,60); ci_ui.scope_y=sub:slider("Y Offset",-50,50,0)
-    ci_ui.glow=sub:switch("  Glow",false); ci_ui.glow_cp=ci_ui.glow:color_picker(color(100,200,255,200))
-    ci_ui.glow_int=sub:slider("  Intensity",1,10,4,1,function(v) return v end)
 end
 local notif_sw=grp_vis:switch(ui.get_icon("bell").."  Notifications",false)
 local n_ui={}
@@ -647,8 +698,6 @@ local gren_warn_sw=grp_vis:switch(ui.get_icon("hexagon-exclamation").."  Grenade
 gren_warn_sw:tooltip("\194\183 1:1 replica from \a00CC44FFgamesense\aDEFAULT.\n\n\aFFAA00FF\194\183 Requires Neverlose's built-in \"Grenade Proximity Warning\" ON.")
 gren_warn_sw:visibility(false)
 for _,item in ipairs({aimlog_sw,mindmg_ind,scope_sw,crosshair_ind,
-                      ci_ui.show_dt,ci_ui.show_osaa,ci_ui.scope_shift,
-                      ci_ui.scope_x,ci_ui.scope_y,ci_ui.glow,ci_ui.glow_int,
                       notif_sw,keep_trans_sw,si_sw}) do
     item:visibility(false)
 end
@@ -659,12 +708,11 @@ end
 local clantag_sw=grp_msc:switch(ui.get_icon("tag").."  Clantag",false)
 local fastladder_sw=grp_msc:switch(ui.get_icon("arrow-up").."  Fast Ladder",false)
 local killsay_sw=grp_msc:switch(ui.get_icon("comment-dots").."  Kill Say",false)
-local killsay_delay_sl,killsay_mode
+local killsay_delay_sl
 local killsay_lang
 do
     local sub=killsay_sw:create()
     killsay_delay_sl=sub:slider("Delay",1,5,1,1,function(v) return v.."s" end)
-    killsay_mode=sub:combo("Chat Mode",{"All Chat","Team Chat"})
     killsay_lang=sub:combo(ui.get_icon("language").."  Language",{"Larp Chinese","Larp Hebrew"})
 end
 local ar_sw=grp_msc:switch(ui.get_icon("expand").."  Aspect Ratio",false)
@@ -900,12 +948,7 @@ local function update_visibility()
     air_hc_sw:visibility(is_rb)
     aimlog_sw:visibility(is_vis); mindmg_ind:visibility(is_vis); scope_sw:visibility(is_vis)
     crosshair_ind:visibility(is_vis)
-    local ci_on=is_vis and crosshair_ind:get()
-    ci_ui.show_dt:visibility(ci_on); ci_ui.show_osaa:visibility(ci_on)
-    ci_ui.scope_shift:visibility(ci_on)
-    ci_ui.scope_x:visibility(ci_on and ci_ui.scope_shift:get())
-    ci_ui.scope_y:visibility(ci_on and ci_ui.scope_shift:get())
-    ci_ui.glow:visibility(ci_on); ci_ui.glow_int:visibility(ci_on and ci_ui.glow:get())
+
     notif_sw:visibility(is_vis); keep_trans_sw:visibility(is_vis)
     si_sw:visibility(is_vis); wm_sw:visibility(is_vis); gren_warn_sw:visibility(is_vis)
 
@@ -941,8 +984,7 @@ aa_sub_nav:set_callback(update_visibility)
 msc_sub_nav:set_callback(update_visibility)
 team_sel:set_callback(update_visibility); state_sel:set_callback(update_visibility)
 aimlog_sw:set_callback(update_visibility); mindmg_ind:set_callback(update_visibility)
-crosshair_ind:set_callback(update_visibility); ci_ui.glow:set_callback(update_visibility)
-ci_ui.scope_shift:set_callback(update_visibility); notif_sw:set_callback(update_visibility)
+crosshair_ind:set_callback(update_visibility); notif_sw:set_callback(update_visibility)
 ar_sw:set_callback(update_visibility); vm_sw:set_callback(update_visibility)
 si_sw:set_callback(update_visibility)
 for ci=1,#teams*#states do
@@ -1192,7 +1234,7 @@ events.player_death:set(function(e)
             if attacker==me and e.attacker~=e.userid then
                 local msg_pool = killsay_lang:get()=="Larp Hebrew" and KILLSAY_HEB or KILLSAY_MSGS
                 local msg=msg_pool[math.random(#msg_pool)]
-                local say_cmd=killsay_mode:get()=="Team Chat" and "say_team" or "say"
+                local say_cmd="say"
                 local delay=killsay_delay_sl:get()
                 utils.execute_after(delay,function() utils.console_exec(say_cmd..' "'..msg..'"') end)
             end
@@ -1695,10 +1737,7 @@ local function collect_state()
         mindmg_color=cp_v and cp_v:to_hex() or nil,
         scope_sw=scope_sw:get(),scope_gap=scope_ui.gap:get(),scope_length=scope_ui.len:get(),
         crosshair_ind=crosshair_ind:get(),crosshair_color=ci_cp and ci_cp:to_hex() or nil,
-        ci_show_dt=ci_ui.show_dt:get(),ci_show_osaa=ci_ui.show_osaa:get(),
-        ci_scope_shift=ci_ui.scope_shift:get(),ci_scope_x=ci_ui.scope_x:get(),ci_scope_y=ci_ui.scope_y:get(),
-        ci_glow=ci_ui.glow:get(),ci_glow_color=(ci_ui.glow_cp:get() and ci_ui.glow_cp:get():to_hex()) or nil,
-        ci_glow_int=ci_ui.glow_int:get(),keep_trans=keep_trans_sw:get(),
+        keep_trans=keep_trans_sw:get(),
         wm_sw=wm_sw:get(),wm_name=wm_ui.name:get(),wm_pos=wm_ui.pos:get(),
         wm_color=(wm_ui.col:get() and wm_ui.col:get():to_hex()) or nil,
         si_sw=si_sw:get(),si_sel=si_ui.sel:get(),si_color=si_c and si_c:to_hex() or nil,
@@ -1713,7 +1752,7 @@ local function collect_state()
     }
     data.misc={
         clantag_sw=clantag_sw:get(),fastladder=fastladder_sw:get(),
-        killsay=killsay_sw:get(),killsay_delay=killsay_delay_sl:get(),killsay_mode=killsay_mode:get(),
+        killsay=killsay_sw:get(),killsay_delay=killsay_delay_sl:get(),
         ar_sw=ar_sw:get(),ar_ratio=ar_slider:get(),vm_sw=vm_sw:get(),
         vm_fov=vm_ui.fov:get(),vm_x=vm_ui.x:get(),vm_y=vm_ui.y:get(),vm_z=vm_ui.z:get(),vm_lh=vm_ui.lh:get(),
         avoid_coll=avoid_coll_sw:get(),no_fall=no_fall_sw:get(),edge_qs=edge_qs_sw:get(),
@@ -1760,14 +1799,6 @@ local function apply_state(data)
     if v.scope_length~=nil then scope_ui.len:set(v.scope_length) end
     if v.crosshair_ind~=nil then crosshair_ind:set(v.crosshair_ind) end
     if v.crosshair_color then crosshair_cp:set(color(v.crosshair_color)) end
-    if v.ci_show_dt~=nil then ci_ui.show_dt:set(v.ci_show_dt) end
-    if v.ci_show_osaa~=nil then ci_ui.show_osaa:set(v.ci_show_osaa) end
-    if v.ci_scope_shift~=nil then ci_ui.scope_shift:set(v.ci_scope_shift) end
-    if v.ci_scope_x~=nil then ci_ui.scope_x:set(v.ci_scope_x) end
-    if v.ci_scope_y~=nil then ci_ui.scope_y:set(v.ci_scope_y) end
-    if v.ci_glow~=nil then ci_ui.glow:set(v.ci_glow) end
-    if v.ci_glow_color then ci_ui.glow_cp:set(color(v.ci_glow_color)) end
-    if v.ci_glow_int~=nil then ci_ui.glow_int:set(v.ci_glow_int) end
     if v.keep_trans~=nil then keep_trans_sw:set(v.keep_trans) end
     if v.wm_sw~=nil then wm_sw:set(v.wm_sw) end
     if v.wm_name~=nil then wm_ui.name:set(v.wm_name) end
@@ -1793,7 +1824,6 @@ local function apply_state(data)
     if m.fastladder~=nil then fastladder_sw:set(m.fastladder) end
     if m.killsay~=nil then killsay_sw:set(m.killsay) end
     if m.killsay_delay~=nil then killsay_delay_sl:set(m.killsay_delay) end
-    if m.killsay_mode~=nil then killsay_mode:set(m.killsay_mode) end
     if m.ar_sw~=nil then ar_sw:set(m.ar_sw) end
     if m.ar_ratio~=nil then
         local v2=m.ar_ratio
@@ -2254,6 +2284,7 @@ events.render:set(function()
             if ok and fs then pcall(function() is_fs=fs:get_override() or fs:get() end) end end
 
         local charge = 1.0; pcall(function() charge=rage.exploit:get() end)
+
         local shifted = charge >= 1.0
 
         S.alpha      = _lerp(S.alpha,     is_scoped and 0.75 or 1.0, 20)
